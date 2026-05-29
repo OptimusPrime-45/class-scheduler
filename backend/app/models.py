@@ -345,6 +345,10 @@ class Teacher(TimestampMixin, Base):
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    @property
+    def subject_ids(self) -> list[int]:
+        return [link.subject_id for link in self.subject_links]
+
     subject_links: Mapped[list["TeacherSubject"]] = relationship(
         back_populates="teacher", cascade="all, delete-orphan"
     )

@@ -1,7 +1,8 @@
 """FastAPI application entrypoint.
 
-Phase 0 ships only the app skeleton + health checks. Routers, the Telegram webhook
-mount, and the APScheduler job runner are wired in later phases.
+Wires the API routers, the Telegram webhook mount, and the APScheduler job runner.
+On startup the scheduler registers the nightly jobs (poll-open, reminders, cutoff,
+auto-solve) from the global InstitutionSettings windows; see app/jobs/scheduler.py.
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ from app.api import schedules_router, availability_router, master_data_router
 from app.bot import bot_router
 
 
+from fastapi.middleware.cors import CORSMiddleware
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup hooks: start APScheduler job runner
@@ -29,6 +32,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Tuition Scheduler", version="0.1.0", lifespan=lifespan)
+
+# Add CORS Middleware to allow requests from the frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Register routers under prefix '/api'
 app.include_router(schedules_router, prefix="/api/schedules", tags=["schedules"])

@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+:root {
+  /* System Colors */
+  --background: #F6F3EE;
+  --sidebar: #EFE9DF;
+  --card-bg: #FAF8F4;
+  --elevated: #FFFFFF;
+  
+  /* Text Colors */
+  --primary-text: #222222;
+  --secondary-text: #6F6F6F;
+  --muted-text: #8C8C8C;
+  
+  /* Borders and Dividers */
+  --border-color: #E2DBD0;
+  --divider-color: #EBE5DB;
+  
+  /* Accent/Status Colors */
+  --accent: #687A52;
+  --success: #6A8A5C;
+  --warning: #B68B42;
+  --danger: #B56B60;
+  --info: #687A52;
+}
+
+@theme {
+  --color-background: var(--background);
+  --color-sidebar: var(--sidebar);
+  --color-card-bg: var(--card-bg);
+  --color-elevated: var(--elevated);
+  
+  --color-primary-text: var(--primary-text);
+  --color-secondary-text: var(--secondary-text);
+  --color-muted-text: var(--muted-text);
+  
+  --color-border-color: var(--border-color);
+  --color-divider-color: var(--divider-color);
+  
+  --color-accent-color: var(--accent);
+  --color-success-color: var(--success);
+  --color-warning-color: var(--warning);
+  --color-danger-color: var(--danger);
+  --color-info-color: var(--info);
+  
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--primary-text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom minimal scrollbar matching Linear/macOS */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--secondary-text);
+}

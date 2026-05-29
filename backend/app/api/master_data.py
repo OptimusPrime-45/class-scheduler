@@ -4,11 +4,12 @@ from datetime import time
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from typing import List
 
 from app.db import get_session
-from app.models import Teacher, Batch, Subject, TeacherType, Board, SubjectDifficulty
+from app.models import Teacher, Batch, Subject, TeacherType, Board, SubjectDifficulty, TeacherSubject
 
 router = APIRouter()
 
@@ -27,6 +28,7 @@ class TeacherCreate(BaseModel):
     preferred_hours_start: time | None = None
     preferred_hours_end: time | None = None
     notes: str | None = None
+    subject_ids: list[int] | None = None
 
 
 class TeacherResponse(BaseModel):
@@ -42,6 +44,7 @@ class TeacherResponse(BaseModel):
     preferred_hours_end: time | None
     is_active: bool
     notes: str | None
+    subject_ids: list[int] = []
 
     class Config:
         from_attributes = True
@@ -100,15 +103,30 @@ async def create_teacher(body: TeacherCreate, session: AsyncSession = Depends(ge
         is_active=True,
         notes=body.notes
     )
+    if body.subject_ids:
+        for s_id in body.subject_ids:
+            teacher.subject_links.append(TeacherSubject(subject_id=s_id, proficiency=5))
+
     session.add(teacher)
     await session.commit()
-    await session.refresh(teacher)
+    
+    # Eager load relationships before returning
+    stmt = select(Teacher).options(selectinload(Teacher.subject_links)).filter(Teacher.id == teacher.id)
+    res = await session.execute(stmt)
+    teacher = res.scalar_one()
     return teacher
+
+
+@router.get("/teachers", response_model=List[TeacherResponse])
+async def list_teachers(session: AsyncSession = Depends(get_session)):
+    stmt = select(Teacher).options(selectinload(Teacher.subject_links)).order_by(Teacher.full_name)
+    res = await session.execute(stmt)
+    return res.scalars().all()
 
 
 @router.get("/teachers/{teacher_id}", response_model=TeacherResponse)
 async def get_teacher(teacher_id: int, session: AsyncSession = Depends(get_session)):
-    stmt = select(Teacher).filter(Teacher.id == teacher_id)
+    stmt = select(Teacher).options(selectinload(Teacher.subject_links)).filter(Teacher.id == teacher_id)
     res = await session.execute(stmt)
     teacher = res.scalar_one_or_none()
     if not teacher:
@@ -150,6 +168,13 @@ async def create_batch(body: BatchCreate, session: AsyncSession = Depends(get_se
     await session.commit()
     await session.refresh(batch)
     return batch
+
+
+@router.get("/batches", response_model=List[BatchResponse])
+async def list_batches(session: AsyncSession = Depends(get_session)):
+    stmt = select(Batch).order_by(Batch.name)
+    res = await session.execute(stmt)
+    return res.scalars().all()
 
 
 @router.get("/batches/{batch_id}", response_model=BatchResponse)
@@ -196,6 +221,13 @@ async def create_subject(body: SubjectCreate, session: AsyncSession = Depends(ge
     await session.commit()
     await session.refresh(subject)
     return subject
+
+
+@router.get("/subjects", response_model=List[SubjectResponse])
+async def list_subjects(session: AsyncSession = Depends(get_session)):
+    stmt = select(Subject).order_by(Subject.name)
+    res = await session.execute(stmt)
+    return res.scalars().all()
 
 
 @router.get("/subjects/{subject_id}", response_model=SubjectResponse)
