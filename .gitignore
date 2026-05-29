@@ -1,0 +1,43 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.Python
+
+# --- Env / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Test / coverage ---
+.pytest_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- Alembic local artifacts ---
+# (versions/ ARE committed; this just ignores editor/OS cruft)
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Node / Next.js (Phase 4) ---
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+*.log
