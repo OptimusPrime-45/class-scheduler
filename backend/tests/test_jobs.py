@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import pytest
-from datetime import date, time
+from datetime import date, time, timedelta
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -31,7 +31,22 @@ from app.models import (
     Board
 )
 import app.jobs.scheduler
-from app.jobs.scheduler import run_cutoff_job, run_auto_solve_job, start_scheduler, shutdown_scheduler
+from app.jobs.scheduler import (
+    run_cutoff_job,
+    run_auto_solve_job,
+    run_poll_open_job,
+    run_reminder_job,
+    register_jobs,
+    start_scheduler,
+    shutdown_scheduler,
+    _add_minutes,
+    _compute_target_date,
+    JOB_POLL_OPEN,
+    JOB_CUTOFF,
+    JOB_AUTO_SOLVE,
+    JOB_REMINDER_PREFIX,
+)
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # --------------------------------------------------------------------------- #
 # Transactional DB Fixture                                                   #
@@ -74,6 +89,7 @@ async def test_scheduler_lifecycle():
     assert scheduler_mod.scheduler.running
     
     await shutdown_scheduler()
+    await engine.dispose()
     
     scheduler_mod = sys.modules['app.jobs.scheduler']
     assert not scheduler_mod.scheduler.running
@@ -268,3 +284,128 @@ async def test_run_auto_solve_job(session: AsyncSession):
     
     assert schedule is not None
     assert schedule.status == ScheduleStatus.DRAFT
+
+
+# --------------------------------------------------------------------------- #
+# Pure helpers                                                                #
+# --------------------------------------------------------------------------- #
+
+def test_add_minutes_wraps_past_midnight():
+    assert _add_minutes(time(19, 0), 60) == time(20, 0)
+    assert _add_minutes(time(19, 0), 120) == time(21, 0)
+    assert _add_minutes(time(23, 30), 60) == time(0, 30)  # wraps midnight
+
+
+def test_compute_target_date_offsets_from_today():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    assert _compute_target_date("Asia/Kolkata", 1) == today_ist + timedelta(days=1)
+    assert _compute_target_date("Asia/Kolkata", 0) == today_ist
+
+
+# --------------------------------------------------------------------------- #
+# Job registration                                                            #
+# --------------------------------------------------------------------------- #
+
+def test_register_jobs_creates_expected_jobs():
+    sched = AsyncIOScheduler()
+    register_jobs(
+        sched,
+        tz_name="Asia/Kolkata",
+        poll_open=time(19, 0),
+        reminder_offsets=[60, 120],
+        cutoff=time(22, 0),
+        solve=time(22, 15),
+        target_offset_days=1,
+    )
+
+    assert sched.get_job(JOB_POLL_OPEN) is not None
+    assert sched.get_job(JOB_CUTOFF) is not None
+    assert sched.get_job(JOB_AUTO_SOLVE) is not None
+    reminder_jobs = [j for j in sched.get_jobs() if j.id.startswith(JOB_REMINDER_PREFIX)]
+    assert len(reminder_jobs) == 2
+
+
+def test_register_jobs_is_idempotent_and_prunes_stale_reminders():
+    sched = AsyncIOScheduler()
+    # First registration with two reminders.
+    register_jobs(
+        sched, tz_name="Asia/Kolkata", poll_open=time(19, 0),
+        reminder_offsets=[60, 120], cutoff=time(22, 0), solve=time(22, 15),
+        target_offset_days=1,
+    )
+    # Re-register with a single reminder; the second stale reminder must be removed.
+    register_jobs(
+        sched, tz_name="Asia/Kolkata", poll_open=time(19, 0),
+        reminder_offsets=[90], cutoff=time(22, 0), solve=None,
+        target_offset_days=1,
+    )
+
+    reminder_jobs = [j for j in sched.get_jobs() if j.id.startswith(JOB_REMINDER_PREFIX)]
+    assert len(reminder_jobs) == 1
+    # solve=None means no auto-solve job this time (it was never added).
+    assert sched.get_job(JOB_AUTO_SOLVE) is None
+    assert sched.get_job(JOB_POLL_OPEN) is not None
+
+
+# --------------------------------------------------------------------------- #
+# Poll-open & reminder jobs                                                   #
+# --------------------------------------------------------------------------- #
+
+async def test_run_poll_open_job_sends_only_to_linked_teachers(session, monkeypatch):
+    import app.bot
+
+    sent_calls = []
+
+    async def fake_send(bot, chat_id, target_date, is_reminder=False):
+        sent_calls.append((chat_id, is_reminder))
+
+    monkeypatch.setattr(app.bot, "send_availability_poll", fake_send)
+
+    linked = Teacher(full_name="Linked", teacher_type=TeacherType.PART_TIME,
+                      max_lectures_per_day=2, is_active=True, telegram_chat_id=111)
+    unlinked = Teacher(full_name="Unlinked", teacher_type=TeacherType.PART_TIME,
+                       max_lectures_per_day=2, is_active=True, telegram_chat_id=None)
+    inactive = Teacher(full_name="Inactive", teacher_type=TeacherType.PART_TIME,
+                       max_lectures_per_day=2, is_active=False, telegram_chat_id=222)
+    session.add_all([linked, unlinked, inactive])
+    await session.flush()
+
+    count = await run_poll_open_job(session, date(2026, 6, 1))
+
+    assert count == 1
+    assert sent_calls == [(111, False)]
+
+
+async def test_run_reminder_job_skips_responders(session, monkeypatch):
+    import app.bot
+
+    sent_calls = []
+
+    async def fake_send(bot, chat_id, target_date, is_reminder=False):
+        sent_calls.append((chat_id, is_reminder))
+
+    monkeypatch.setattr(app.bot, "send_availability_poll", fake_send)
+
+    target_date = date(2026, 6, 1)
+
+    responded = Teacher(full_name="Responded", teacher_type=TeacherType.PART_TIME,
+                        max_lectures_per_day=2, is_active=True, telegram_chat_id=111)
+    pending = Teacher(full_name="Pending", teacher_type=TeacherType.PART_TIME,
+                      max_lectures_per_day=2, is_active=True, telegram_chat_id=222)
+    session.add_all([responded, pending])
+    await session.flush()
+
+    session.add(TeacherAvailability(
+        teacher_id=responded.id, availability_date=target_date,
+        status=AvailabilityStatus.AVAILABLE_ALL_DAY,
+        source=AvailabilitySource.TELEGRAM,
+    ))
+    await session.flush()
+
+    count = await run_reminder_job(session, target_date)
+
+    assert count == 1
+    assert sent_calls == [(222, True)]  # only the non-responder, flagged as a reminder

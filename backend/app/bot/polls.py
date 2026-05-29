@@ -116,10 +116,18 @@ async def upsert_availability(
     return avail
 
 
-async def send_availability_poll(bot: Bot, chat_id: int, target_date: date):
+async def send_availability_poll(
+    bot: Bot, chat_id: int, target_date: date, is_reminder: bool = False
+):
     """Sends availability poll with Available all day, Pick slots, and Unavailable options."""
     date_str = target_date.strftime("%Y-%m-%d")
-    text = f"Availability Poll for {date_str}: Please choose your availability."
+    if is_reminder:
+        text = (
+            f"Reminder: you haven't submitted your availability for {date_str} yet. "
+            "Please choose an option below before the cutoff."
+        )
+    else:
+        text = f"Availability Poll for {date_str}: Please choose your availability."
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Available all day", callback_data=f"avail:all:{date_str}")],
