@@ -199,3 +199,15 @@ class SolverResult(_Frozen):
     solve_time_ms: int | None = None
     # observability, e.g. {"num_booleans": .., "num_demands": ..}
     diagnostics: dict[str, int] = Field(default_factory=dict)
+
+
+class ConstraintViolation(_Frozen):
+    rule: str
+    message: str
+    details: dict = Field(default_factory=dict)
+
+
+class ValidationResult(_Frozen):
+    is_valid: bool
+    violations: tuple[ConstraintViolation, ...] = ()
+
